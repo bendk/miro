@@ -260,6 +260,7 @@ class LiveStorage:
             self._handle_load_error(msg)
             # rerun the command with our fresh database
             self.cursor.execute("PRAGMA journal_mode=PERSIST");
+        self.cursor.execute("PRAGMA synchronous=off");
 
     def close(self, ignore_vacuum_error=True):
         logging.info("closing database")
