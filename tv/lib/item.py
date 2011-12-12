@@ -473,30 +473,58 @@ class Item(DDBObject, iconcache.IconCacheOwnerMixin):
 
     @classmethod
     def auto_pending_view(cls):
+        def check_func(item):
+            feed = item.get_feed()
+            if feed is None:
+                return False
+            return (feed.autoDownloadable and not
+                    item.was_downloaded and
+                    (item.eligibleForAutoDownload or
+                     feed.getEverything))
+
         return cls.make_view('feed.autoDownloadable AND '
                 'NOT item.was_downloaded AND '
                 '(item.eligibleForAutoDownload OR feed.getEverything)',
-                joins={'feed': 'item.feed_id=feed.id'})
+                joins={'feed': 'item.feed_id=feed.id'},
+                check_func=check_func)
 
     @classmethod
     def manual_pending_view(cls):
-        return cls.make_view('pendingManualDL')
+        return cls.make_view('pendingManualDL',
+                             check_func=lambda i: i.pendingManualDL)
 
     @classmethod
     def auto_downloads_view(cls):
+        def check_func(item):
+            return (item.autoDownloaded and
+                    item.downloader_state() in ('downloading', 'paused'))
         return cls.make_view("item.autoDownloaded AND "
                 "rd.state in ('downloading', 'paused')",
-                joins={'remote_downloader rd': 'item.downloader_id=rd.id'})
+                joins={'remote_downloader rd': 'item.downloader_id=rd.id'},
+                check_func=check_func)
 
     @classmethod
     def manual_downloads_view(cls):
+        def check_func(i):
+            return (not i.autoDownloaded and
+                    not i.pendingManualDL and
+                    i.downloader_state() in ('downloading', 'paused'))
         return cls.make_view("NOT item.autoDownloaded AND "
                 "NOT item.pendingManualDL AND "
                 "rd.state in ('downloading', 'paused')",
-                joins={'remote_downloader AS rd': 'item.downloader_id=rd.id'})
+                joins={'remote_downloader AS rd': 'item.downloader_id=rd.id'},
+                             check_func=check_func)
 
     @classmethod
     def download_tab_view(cls):
+        def check_func(item):
+            if item.pendingManualDL:
+                return True
+            else:
+                return (item.downloader is not None and
+                        (item.downloader.state != 'failed' or
+                         item.is_external()) and
+                        item.is_main_item())
         return cls.make_view("(item.pendingManualDL OR "
                 "(rd.state in ('downloading', 'paused', 'uploading', "
                 "'uploading-paused', 'offline') OR "
@@ -504,42 +532,67 @@ class Item(DDBObject, iconcache.IconCacheOwnerMixin):
                 "feed.origURL == 'dtv:manualFeed')) AND "
                 "rd.main_item_id=item.id)",
                 joins={'remote_downloader AS rd': 'item.downloader_id=rd.id',
-                    'feed': 'item.feed_id=feed.id'})
+                    'feed': 'item.feed_id=feed.id'},
+                check_func=check_func)
 
     @classmethod
     def downloading_view(cls):
+        def check_func(item):
+            return (item.downloader_state() in ('downloading', 'uploading')
+                    and item.is_main_item())
         return cls.make_view("rd.state in ('downloading', 'uploading') AND "
                 "rd.main_item_id=item.id",
-                joins={'remote_downloader AS rd': 'item.downloader_id=rd.id'})
+                joins={'remote_downloader AS rd': 'item.downloader_id=rd.id'},
+                             check_func=check_func)
 
     @classmethod
     def only_downloading_view(cls):
+        def check_func(item):
+            return (item.downloader_state() == 'downloading'
+                    and item.is_main_item())
         return cls.make_view("rd.state='downloading' AND "
-                "rd.main_item_id=item.id",
-                joins={'remote_downloader AS rd': 'item.downloader_id=rd.id'})
+                             "rd.main_item_id=item.id",
+                             joins={'remote_downloader AS rd':
+                                    'item.downloader_id=rd.id'},
+                             check_func=check_func)
 
     @classmethod
     def paused_view(cls):
+        def check_func(item):
+            return (item.downloader_state() in ('paused', 'uploading-paused') and
+                    item.is_main_item())
         return cls.make_view("rd.state in ('paused', 'uploading-paused') AND "
-                "rd.main_item_id=item.id",
-                joins={'remote_downloader AS rd': 'item.downloader_id=rd.id'})
+                             "rd.main_item_id=item.id",
+                             joins={'remote_downloader AS rd':
+                                    'item.downloader_id=rd.id'},
+                             check_func=check_func)
 
     @classmethod
     def unwatched_downloaded_items(cls):
+        def check_func(item):
+            return (item.is_downloaded() and
+                    not item.seen and
+                    item.parent_id is None)
         return cls.make_view("NOT item.seen AND "
                 "item.parent_id IS NULL AND "
                 "rd.state in ('finished', 'uploading', 'uploading-paused')",
-                joins={'remote_downloader AS rd': 'item.downloader_id=rd.id'})
+                joins={'remote_downloader AS rd': 'item.downloader_id=rd.id'},
+                check_func=check_func)
 
     @classmethod
     def newly_downloaded_view(cls):
+        def check_func(item):
+            return (item.file_type in ('audio', 'video') and
+                    item.get_state() == 'newly-downloaded' and
+                    item.is_main_item())
         return cls.make_view("NOT item.seen AND "
                 "(item.file_type in ('audio', 'video')) AND "
                 "((is_file_item AND NOT deleted) OR "
                 "(rd.main_item_id=item.id AND "
                 "rd.state in ('finished', 'uploading', 'uploading-paused')))",
                 joins={'remote_downloader AS rd': 'item.downloader_id=rd.id'},
-                order_by='downloadedTime DESC')
+                order_by='downloadedTime DESC',
+                check_func=check_func)
 
     @classmethod
     def downloaded_view(cls):
@@ -583,11 +636,17 @@ class Item(DDBObject, iconcache.IconCacheOwnerMixin):
 
     @classmethod
     def unique_others_view(cls):
+        def check_func(item):
+            return (item.file_type == 'other' and
+                    item.is_downloaded() and
+                    item.is_library_item())
+
         return cls.make_view("item.file_type='other' AND "
                 "((is_file_item AND NOT deleted) OR "
                 "(rd.main_item_id=item.id AND "
                 "rd.state in ('finished', 'uploading', 'uploading-paused')))",
-                joins={'remote_downloader AS rd': 'item.downloader_id=rd.id'})
+                joins={'remote_downloader AS rd': 'item.downloader_id=rd.id'},
+                check_func=check_func)
 
     @classmethod
     def unique_new_video_view(cls, include_podcasts=False):
@@ -602,7 +661,17 @@ class Item(DDBObject, iconcache.IconCacheOwnerMixin):
                              "feed.origURL == 'dtv:manualFeed' OR "
                              "is_file_item)")
             joins['feed'] = 'feed_id = feed.id'
-        return cls.make_view(query, joins=joins)
+            def check_func(item):
+                return (item.file_type == 'video' and
+                        not item.is_podcast_item() and
+                        item.is_downloaded() and
+                        item.is_library_item())
+        else:
+            def check_func(item):
+                return (item.file_type == 'video' and
+                        item.is_downloaded() and
+                        item.is_library_item())
+        return cls.make_view(query, joins=joins, check_func=check_func)
 
     @classmethod
     def unique_new_audio_view(cls, include_podcasts=False):
@@ -617,7 +686,17 @@ class Item(DDBObject, iconcache.IconCacheOwnerMixin):
                              "feed.origURL == 'dtv:manualFeed' OR "
                              "is_file_item)")
             joins['feed'] = 'feed_id = feed.id'
-        return cls.make_view(query, joins=joins)
+            def check_func(item):
+                return (item.file_type == 'audio' and
+                        not item.is_podcast_item() and
+                        item.is_downloaded() and
+                        item.is_library_item())
+        else:
+            def check_func(item):
+                return (item.file_type == 'audio' and
+                        item.is_downloaded() and
+                        item.is_library_item())
+        return cls.make_view(query, joins=joins, check_func=check_func)
 
     @classmethod
     def toplevel_view(cls):
@@ -722,9 +801,19 @@ class Item(DDBObject, iconcache.IconCacheOwnerMixin):
                              "feed.origURL == 'dtv:searchDownloads' OR "
                              "feed.origURL == 'dtv:search' OR "
                              "is_file_item)")
+            def check_func(i):
+                return (i.is_library_item() and
+                        i.file_type == 'video' and
+                        not i.is_podcast_item())
+        else:
+            def check_func(i):
+                return i.is_library_item() and i.file_type == 'video'
         return cls.make_view(query,
-            joins={'feed': 'item.feed_id=feed.id',
-                   'remote_downloader as rd': 'item.downloader_id=rd.id'})
+                             joins={'feed': 'item.feed_id=feed.id',
+                                    'remote_downloader as rd':
+                                    'item.downloader_id=rd.id'},
+                             check_func=check_func)
+
 
     @classmethod
     def watchable_view(cls):
@@ -734,7 +823,9 @@ class Item(DDBObject, iconcache.IconCacheOwnerMixin):
             "(is_file_item OR rd.main_item_id=item.id) AND " 
             "NOT item.file_type='other'",
             joins={'feed': 'item.feed_id=feed.id',
-                   'remote_downloader as rd': 'item.downloader_id=rd.id'})
+                   'remote_downloader as rd': 'item.downloader_id=rd.id'},
+            check_func=lambda i: (i.is_library_item() and
+                                  i.file_type != 'other'))
 
     @classmethod
     def watchable_audio_view(cls, include_podcasts=False):
@@ -748,9 +839,18 @@ class Item(DDBObject, iconcache.IconCacheOwnerMixin):
                              "feed.origURL == 'dtv:searchDownloads' OR "
                              "feed.origURL == 'dtv:search' OR "
                              "is_file_item)")
+            def check_func(i):
+                return (i.is_library_item() and
+                        i.file_type == 'audio' and
+                        not i.is_podcast_item())
+        else:
+            def check_func(i):
+                return i.is_library_item() and i.file_type == 'audio'
         return cls.make_view(query,
-            joins={'feed': 'item.feed_id=feed.id',
-                   'remote_downloader as rd': 'item.downloader_id=rd.id'})
+                             joins={'feed': 'item.feed_id=feed.id',
+                                    'remote_downloader as rd':
+                                    'item.downloader_id=rd.id'},
+                             check_func=check_func)
 
     @classmethod
     def watchable_other_view(cls):
@@ -798,16 +898,24 @@ class Item(DDBObject, iconcache.IconCacheOwnerMixin):
 
     @classmethod
     def recently_watched_view(cls):
-        return cls.make_view("file_type IN ('video', 'audio') AND lastWatched")
+        def check_func(item):
+            return (item.file_type in ('video', 'audio') and
+                    item.lastWatched is not None)
+        return cls.make_view("file_type IN ('video', 'audio') AND "
+                             "lastWatched IS NOT NULL",
+                             check_func=check_func)
 
     @classmethod
     def recently_downloaded_view(cls):
+        def check_func(item):
+            return (item.get_state() == 'newly-downloaded' and
+                    item.parent_id is None and
+                    not item.is_file_item)
         return cls.make_view("NOT seen AND "
                 "item.parent_id IS NULL AND "
                 "NOT is_file_item AND downloadedTime AND "
                 "rd.state in ('finished', 'uploading', 'uploading-paused')",
                 joins={'remote_downloader AS rd': 'item.downloader_id=rd.id'})
-
 
     @classmethod
     def update_folder_trackers(cls):
@@ -1109,6 +1217,18 @@ class Item(DDBObject, iconcache.IconCacheOwnerMixin):
             except ObjectNotFoundError:
                 return None
         return None
+
+    def is_library_item(self):
+        """Should this item go in the main audio/video library tabs?"""
+        return (not self.isContainerItem and not self.deleted and
+                self.is_main_item())
+
+    def is_podcast_item(self):
+        non_podcast_urls = ('dtv:manualFeed',
+                            'dtv:searchDownloads',
+                            'dtv:search')
+        return (not self.is_file_item and
+                self.get_feed_url() not in non_podcast_urls)
 
     def get_children(self):
         if self.isContainerItem:
@@ -2137,6 +2257,10 @@ class FileItem(Item):
 
     def is_external(self):
         return self.parent_id is None
+
+    def is_main_item(self):
+        # file item should always be unique
+        return True
 
     def _look_for_downloader(self):
         # we don't need a database query to know that there's no downloader

@@ -178,7 +178,10 @@ class IDOnlyFetcher(ViewObjectFetcher):
         return item.id
 
 class View(object):
-    def __init__(self, fetcher, where, values, order_by, joins, limit):
+    def __init__(self, fetcher, where, values, order_by, joins, limit,
+                 check_func):
+        if check_func is not None and not hasattr(check_func, '__call__'):
+            raise TypeError("check_func must be a function")
         self.fetcher = fetcher
         self.table_name = fetcher.table_name()
         self.where = where
@@ -186,6 +189,7 @@ class View(object):
         self.order_by = order_by
         self.joins = joins
         self.limit = limit
+        self.check_func = check_func
 
     def _query(self):
         id_list = self._query_ids()
@@ -222,7 +226,8 @@ class View(object):
     def make_tracker(self):
         if self.limit is not None:
             raise ValueError("tracking views with limits not supported")
-        return ViewTracker(self.fetcher, self.where, self.values, self.joins)
+        return ViewTracker(self.fetcher, self.where, self.values, self.joins,
+                           self.check_func)
 
 class ViewTrackerManager(object):
     def __init__(self):
@@ -262,7 +267,7 @@ class ViewTrackerManager(object):
             tracker.remove_object(obj)
 
 class ViewTracker(signals.SignalEmitter):
-    def __init__(self, fetcher, where, values, joins):
+    def __init__(self, fetcher, where, values, joins, check_func):
         signals.SignalEmitter.__init__(self, 'added', 'removed', 'changed',
                 'bulk-added', 'bulk-removed', 'bulk-changed')
         self.fetcher = fetcher
@@ -272,6 +277,13 @@ class ViewTracker(signals.SignalEmitter):
             raise TypeError("values must be a tuple")
         self.values = values
         self.joins = joins
+        if check_func is None:
+            if where is None:
+                check_func = self._trivial_check_func
+            else:
+                logging.warn("Falling back to sql check func (where: %s)", where)
+                check_func = self._sql_check_func
+        self.check_func = check_func
         self.bulk_mode = False
         self.current_ids = self._view_object_ids()
         vt_manager = app.view_tracker_manager
@@ -290,8 +302,17 @@ class ViewTracker(signals.SignalEmitter):
         """
         self.bulk_mode = bulk_mode
 
-    def _obj_in_view(self, obj):
-        """Check if a single object is in our view."""
+    def _trivial_check_func(self, obj):
+        """Check function that always returns True.
+
+        This is a safe optimization when there is no where claus.
+        """
+        return True
+
+    def _sql_check_func(self, obj):
+        """Check function that uses SQLite to test if the object is in the
+        view.
+        """
         where = '%s.id = ?' % (self.table_name,)
         if self.where:
             where += ' AND (%s)' % (self.where,)
@@ -320,7 +341,7 @@ class ViewTracker(signals.SignalEmitter):
 
     def check_object(self, obj):
         before = (obj.id in self.current_ids)
-        now = self._obj_in_view(obj)
+        now = self.check_func(obj)
         if before and not now:
             self.current_ids.remove(obj.id)
             self.emit('removed', self.fetcher.fetch_obj_for_ddb_object(obj))
@@ -563,11 +584,11 @@ class DDBObject(signals.SignalEmitter):
 
     @classmethod
     def make_view(cls, where=None, values=None, order_by=None, joins=None,
-            limit=None):
+            limit=None, check_func=None):
         if values is None:
             values = ()
         fetcher = DDBObjectFetcher(cls)
-        return View(fetcher, where, values, order_by, joins, limit)
+        return View(fetcher, where, values, order_by, joins, limit, check_func)
 
     @classmethod
     def get_by_id(cls, id_):

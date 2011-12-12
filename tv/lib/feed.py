@@ -526,11 +526,12 @@ class Feed(DDBObject, iconcache.IconCacheOwnerMixin):
 
     @classmethod
     def visible_view(cls):
-        return cls.make_view("visible")
+        return cls.make_view("visible", check_func=lambda feed: feed.visible)
 
     @classmethod
     def watched_folder_view(cls):
-        return cls.make_view("origURL LIKE 'dtv:directoryfeed:%'")
+        return cls.make_view("origURL LIKE 'dtv:directoryfeed:%'",
+                             check_func=lambda f: f.is_watched_folder())
 
     def on_db_insert(self):
         self.generate_feed(True)

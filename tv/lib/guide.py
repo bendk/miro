@@ -91,7 +91,8 @@ class ChannelGuide(DDBObject, iconcache.IconCacheOwnerMixin):
     def site_view(cls):
         default_url = app.config.get(prefs.CHANNEL_GUIDE_URL)
         return cls.make_view('url != ? AND store = ?',
-                            (default_url, cls.STORE_NOT_STORE,))
+                            (default_url, cls.STORE_NOT_STORE,),
+                             check_func=lambda guide: guide.is_site)
 
     @classmethod
     def guide_view(cls):
@@ -104,11 +105,17 @@ class ChannelGuide(DDBObject, iconcache.IconCacheOwnerMixin):
 
     @classmethod
     def visible_store_view(cls):
-        return cls.make_view('store = ?', (cls.STORE_VISIBLE,))
+        def check_func(s):
+            return s.store == cls.STORE_VISIBLE
+        return cls.make_view('store = ?', (cls.STORE_VISIBLE,),
+                             check_func=check_func)
 
     @classmethod
     def invisible_store_view(cls):
-        return cls.make_view('store = ?', (cls.STORE_INVISIBLE,))
+        def check_func(s):
+            return s.store == cls.STORE_INVISIBLE
+        return cls.make_view('store = ?', (cls.STORE_INVISIBLE,),
+                             check_func=check_func)
 
     @classmethod
     def visible_view(cls):
@@ -136,6 +143,9 @@ class ChannelGuide(DDBObject, iconcache.IconCacheOwnerMixin):
 
     def is_visible(self):
         return self.store != self.STORE_INVISIBLE
+
+    def is_site(self):
+        return (not self.is_default() and self.store == cls.STORE_NOT_STORE)
 
     def get_folder(self):
         return None

@@ -261,7 +261,11 @@ class RemoteDownloader(DDBObject):
 
     @classmethod
     def auto_uploader_view(cls):
-        return cls.make_view("state == 'uploading' AND NOT manualUpload")
+        def check_func(downloader):
+            return (downloader.state == 'uploading' and
+                    not downloader.manualUpload)
+        return cls.make_view("state == 'uploading' AND NOT manualUpload",
+                             check_func=check_func)
 
     @classmethod
     def get_by_dlid(cls, dlid):
