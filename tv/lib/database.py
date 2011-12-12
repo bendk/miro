@@ -33,6 +33,7 @@ import threading
 
 from miro import app
 from miro import signals
+from miro import util
 
 class DatabaseException(Exception):
     """Superclass for classes that subclass Exception and are all
@@ -384,6 +385,7 @@ class BulkSQLManager(object):
         self.last_call = "".join(traceback.format_stack())
 
     def finish(self):
+        t = util.DebuggingTimer()
         if not self.active:
             raise ValueError("BulkSQLManager.finish() called twice")
         try:
@@ -392,6 +394,7 @@ class BulkSQLManager(object):
             # Ensure that this flag always get set back to False even in the
             # face of any exception thrown from commit() method.
             self.active = False
+        t.log_time("commit")
 
         # Force a commit of our current transaction.
         #
@@ -399,15 +402,19 @@ class BulkSQLManager(object):
         # we are in the middle of bulk inserting/removing, then we should try
         # to commit the objects that didn't throw anything see (#16341)
         app.db.finish_transaction()
+        t.log_time("finish_transaction")
 
     def commit(self):
         for x in range(100):
+            t = util.DebuggingTimer()
             to_insert = self.to_insert
             to_remove = self.to_remove
             self.to_insert = {}
             self.to_remove = {}
             self._commit_sql(to_insert, to_remove)
+            t.log_time("commit sql")
             self._update_view_trackers(to_insert, to_remove)
+            t.log_time("UPdate")
             if len(self.to_insert) == len(self.to_remove) == 0:
                 break
             # inside _commit_sql() or _update_view_trackers(), we were

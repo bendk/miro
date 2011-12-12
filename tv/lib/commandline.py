@@ -57,7 +57,7 @@ from miro import item
 from miro import itemsource
 from miro import httpclient
 from miro import download_utils
-from miro.util import get_torrent_info_hash, is_magnet_uri
+from miro.util import get_torrent_info_hash, is_magnet_uri, DebuggingTimer
 from miro.plat.utils import samefile, filename_to_unicode
 from miro import singleclick
 from miro import opml
@@ -100,7 +100,7 @@ def add_videos(paths):
     yield # yield after doing prep work
     with app.local_metadata_manager.bulk_add():
         while not finished:
-            finished = _add_batch_of_videos(path_iter, 0.1)
+            finished = _add_batch_of_videos(path_iter, 0.3)
             yield # yield after each batch
 
 def _add_batch_of_videos(path_iter, max_time):
@@ -111,17 +111,22 @@ def _add_batch_of_videos(path_iter, max_time):
 
     :returns: True if we returned because path_iter was finished
     """
+    t = DebuggingTimer()
     start_time = time.time()
     manual_feed = feed.Feed.get_manual_feed()
     app.bulk_sql_manager.start()
+    count = 0
     try:
         for path in path_iter:
+            count += 1
             add_video(path, manual_feed=manual_feed)
             if time.time() - start_time > max_time:
                 return False
         return True
     finally:
+        t.log_time("add videos: %s" % count)
         app.bulk_sql_manager.finish()
+        t.log_time("finish")
 
 def add_torrent(path, torrent_info_hash):
     manual_feed = feed.Feed.get_manual_feed()
