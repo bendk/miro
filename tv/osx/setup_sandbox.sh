@@ -39,7 +39,10 @@ BKIT_VERSION="$(cat binary_kit_version)"
 # =============================================================================
 
 OS_VERSION=$(uname -r | cut -d . -f 1)
-if [[ $OS_VERSION == "10" ]] || [[ $OS_VERSION == "11" ]] || [[ $OS_VERSION == "12" ]]; then
+if [ ! -z "$1" ]; then
+    echo "Overriding target Mac OS X deployment target to $1"
+    TARGET_OS_VERSION="$1"
+elif [[ $OS_VERSION == "10" ]] || [[ $OS_VERSION == "11" ]] || [[ $OS_VERSION == "12" ]]; then
     TARGET_OS_VERSION=10.6
 else
     echo "## This script can only be used under Mac OS X 10.{6,7,8}."
@@ -119,8 +122,8 @@ SDK_FLAGS="-isysroot $SDK_DIR"
 
 cd $WORK_DIR
 
-tar -xzf $BKIT_DIR/curl-7.25.0.tar.gz
-cd $WORK_DIR/curl-7.25.0
+tar -xzf $BKIT_DIR/curl-7.29.0.tar.gz
+cd $WORK_DIR/curl-7.29.0
 
 
 # generate 32 bit file
@@ -164,12 +167,12 @@ $PYTHON setup.py install
 
 # PyObjC and friends, Pyrex =========================================
 
-for pkg in "distribute-0.6.4" \
-           "altgraph-0.9" \
-           "macholib-1.4.3" \
-           "mutagen-1.20" \
-           "modulegraph-0.9.1" \
-           "py2app-0.6.3" \
+for pkg in "distribute-0.6.35" \
+           "altgraph-0.10.2" \
+           "macholib-1.5.1" \
+           "mutagen-1.21" \
+           "modulegraph-0.10.4" \
+           "py2app-0.7.3" \
            "Pyrex-0.9.9"
 do
     cd $WORK_DIR
@@ -188,7 +191,7 @@ do
     
     if [[ -e $BKIT_DIR/patches/$pkg ]]; then
         for patch_file in $BKIT_DIR/patches/$pkg/*.patch; do
-            patch -p0 < $patch_file
+            patch -p1 < $patch_file
         done
     fi
 

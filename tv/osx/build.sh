@@ -37,12 +37,19 @@ if [ ! -d "miro-binary-kit-osx-${BKIT_VERSION}" ]; then
     exit 1
 fi
 
-if [[ $OS_VERSION == "10" ]] || [[ $OS_VERSION == "11" || $OS_VERSION == "12" ]]; then
-    TARGET_OS_VERSION=10.6
-else
-    echo "Building and running Miro is only supported on Mac OS X 10.{6,7,8}."
-    exit 1
-fi
+# pull out the TARGET_OS_VERSION
+newargs=()
+TARGET_OS_VERSION=10.6
+for arg in "$@"
+do
+    if [[ $arg == "--target="* ]] ; then
+        TARGET_OS_VERSION=`echo $arg | sed s/--target=//`
+        echo "Overriding target Mac OS X deployment target to $TARGET_OS_VERSION"
+    else
+        newargs+=($arg)
+    fi
+done
+set -- ${newargs[@]}
 
 ROOT_DIR=$(pushd ../../ >/dev/null; pwd; popd >/dev/null)
 SBOX_DIR=$ROOT_DIR/sandbox_$BKIT_VERSION

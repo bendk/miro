@@ -602,12 +602,14 @@ class MiroBuild (py2app):
                 print "    %s" % dest
     
     def precompile_site_pyc(self):
-        print "Pre-compiling python sources"
-        import py_compile
-        py_compile.compile(os.path.join(self.rsrcRoot, 'lib', 'python%s' % PYTHON_VERSION, 'site.py'))
-        print "Deleting python sources"
-        # These can go, since we have the pyc now
-        os.remove(os.path.join(self.rsrcRoot, 'lib', 'python%s' % PYTHON_VERSION, 'site.py'))
+        site_py = os.path.join(self.rsrcRoot, 'lib', 'python%s' % PYTHON_VERSION, 'site.py')
+        if os.path.exists(site_py):
+            print "Pre-compiling python sources"
+            import py_compile
+            py_compile.compile(site_py)
+            print "Deleting python sources"
+            # These can go, since we have the pyc now
+            os.remove(os.path.join(self.rsrcRoot, 'lib', 'python%s' % PYTHON_VERSION, 'site.py'))
     
     def copy_theme_files(self):
         # Copy theme files to the application bundle
